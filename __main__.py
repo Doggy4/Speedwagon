@@ -1,5 +1,6 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
+import asyncio
 import datetime
 import discord
 import random
@@ -8,6 +9,7 @@ from discord.ext import tasks
 from discord_slash import SlashCommand, SlashContext, cog_ext
 from discord_slash.utils.manage_commands import create_option, create_choice
 
+from channels import channels
 from ex_parser.authorization.authorizer import Authorizer
 from managers.command_manager import CommandManager
 from managers.database_manager import LeftMembersDatabaseManager
@@ -59,7 +61,7 @@ class Speedwagon(commands.Bot):
         await self.log_manager.member_leave(member)
 
     async def on_member_update(self, before, after):
-       await self.log_manager.member_update(before, after)
+        await self.log_manager.member_update(before, after)
 
     async def on_member_ban(self, guild, user):
         await self.log_manager.member_ban(user)
@@ -70,6 +72,11 @@ class Speedwagon(commands.Bot):
     async def on_message_edit(self, before, after):
         if not (before.author.bot or before.author.id == AUTHOR_ID):
             await self.log_manager.message_edit(before, after)
+
+    async def on_message(self, message):
+        if message.channel.id == channels.MUSIC:
+            await asyncio.sleep(30)
+            await message.delete()
 
     async def on_message_delete(self, message):
         if not (message.author.bot or message.author.id == AUTHOR_ID):
