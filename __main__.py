@@ -2,6 +2,8 @@
 # -*- coding: utf-8 -*-
 import asyncio
 import datetime
+import inspect
+
 import discord
 import random
 from discord.ext import commands
@@ -34,6 +36,57 @@ class Speedwagon(commands.Bot):
         self.slash = SlashCommand(self, sync_commands=True)
         self.start_tasks()
 
+        for name, member in inspect.getmembers(self):
+            if isinstance(member, commands.Command):
+                if member.parent is None:
+                    self.add_command(member)
+
+    @commands.command(name='avatar', aliases=['av', 'ав', 'аватар'])
+    async def avatar(ctx, *, user: discord.User = None):
+        user = ctx.author if user is None else user
+        await ctx.reply(**CommandManager.avatar(ctx, user))
+
+    @avatar.error
+    async def avatar_error(ctx, error):
+        if isinstance(error, commands.UserNotFound):
+            await ctx.reply(**CommandManager.user_does_not_exist())
+
+    @commands.command(name='top', aliases=['топ'])
+    async def top(ctx, *, top_type: str = None):
+        if not await CommandManager.confirm_channel_access(ctx, ctx.channel.id, 'top'):
+            return
+        pending_message = await ctx.reply(**CommandManager.pending())
+        if top_type == 'online' or top_type == 'онлайн':
+            await pending_message.edit(**CommandManager.online())
+        elif top_type == 'votes' or top_type == 'голоса':
+            await pending_message.edit(**CommandManager.votes())
+
+    @commands.command(name='monitoring', aliases=['online', 'servers', 'server', 'mon', 'players', 'мониторинг', 'онлайн', 'игроки', 'мон', 'сервера', 'сервер', 'серверы'])
+    async def monitoring(ctx):
+        if not await CommandManager.confirm_channel_access(ctx, ctx.channel.id, 'monitoring'):
+            return
+        pending_message = await ctx.reply(**CommandManager.pending())
+        await pending_message.edit(**CommandManager.monitoring())
+
+    @commands.command(name='player', aliases=['user', 'name', 'username', 'nickname', 'игрок', 'никнейм', 'имя', 'пользователь'])
+    async def player(ctx, nickname: str):
+        if not await CommandManager.confirm_channel_access(ctx, ctx.channel.id, 'player'):
+            return
+        pending_message = await ctx.reply(**CommandManager.pending())
+        await pending_message.edit(**CommandManager.player(nickname))
+
+    @commands.command(name='clan', aliases=['клан'])
+    async def clan(ctx, clan_name: str):
+        if not await CommandManager.confirm_channel_access(ctx, ctx.channel.id, 'clan'):
+            return
+        pending_message = await ctx.reply(**CommandManager.pending())
+        await pending_message.edit(**CommandManager.clan(clan_name))
+
+    @commands.command(name='help', aliases=['support', 'bot', 'speedwagon', 'помощь', 'поддержка', 'хелп', 'бот', 'спидвагон'])
+    async def help(ctx):
+        embed = CommandManager.help(ctx.channel.id, ctx.author.permissions_in(ctx.channel).administrator)
+        await ctx.reply(embed=embed[0])
+
     def start_tasks(self):
         self.random_status_task.start()
         self.confirm_authorization_task.start()
@@ -46,18 +99,21 @@ class Speedwagon(commands.Bot):
         self.rank_manager = RankManager()
         await self.log_manager.ready()
 
-    async def on_error(self, event, *args, **kwargs):
-        await self.log_manager.error(event, args, kwargs)
+    # async def on_error(self, event, *args, **kwargs):
+    #     await self.log_manager.error(event, args, kwargs)
 
     async def on_member_join(self, member):
         left_user = LeftMembersDatabaseManager().get_delete_user(member.id)
         if left_user is not None:
-            await member.edit(nick=left_user.display_name, roles=list(map(lambda x: self.get_guild(GUILD_ID).get_role(x), left_user.roles_ids)))
+            await member.edit(nick=left_user.display_name,
+                              roles=list(map(lambda x: self.get_guild(GUILD_ID).get_role(x), left_user.roles_ids)))
         await self.log_manager.member_join(member)
 
     async def on_member_remove(self, member):
         if not (len(member.roles) == 2 and member.roles[0].id == 549166689506557950 and member.roles[1].id == 559487078191202325):
-            LeftMembersDatabaseManager().add_update_user(LeftUser(discord_id=member.id, display_name=member.nick if member.nick is not None else member.display_name, roles_ids=list(map(lambda x: x.id, member.roles))))
+            LeftMembersDatabaseManager().add_update_user(LeftUser(discord_id=member.id,
+                                                                  display_name=member.nick if member.nick is not None else member.display_name,
+                                                                  roles_ids=list(map(lambda x: x.id, member.roles))))
         await self.log_manager.member_leave(member)
 
     async def on_member_update(self, before, after):
@@ -73,10 +129,10 @@ class Speedwagon(commands.Bot):
         if not (before.author.bot or before.author.id == AUTHOR_ID):
             await self.log_manager.message_edit(before, after)
 
-    async def on_message(self, message):
-        if message.channel.id == channels.MUSIC:
-            await asyncio.sleep(30)
-            await message.delete()
+    # async def on_message(self, message):
+    #     if message.channel.id == channels.MUSIC:
+    #         await asyncio.sleep(30)
+    #         await message.delete()
 
     async def on_message_delete(self, message):
         if not (message.author.bot or message.author.id == AUTHOR_ID):
@@ -125,7 +181,8 @@ class Speedwagon(commands.Bot):
     @tasks.loop(seconds=10)  # random status every 10 seconds
     async def random_status_task(self):
         status = random.choice(statuses)
-        await self.change_presence(status=discord.Status.online, activity=discord.Activity(type=status[0], name=status[1]))
+        await self.change_presence(status=discord.Status.online,
+                                   activity=discord.Activity(type=status[0], name=status[1]))
 
     @tasks.loop(minutes=30)  # confirm authorization every 30 minutes
     async def confirm_authorization_task(self):
@@ -150,95 +207,138 @@ class Slash(commands.Cog):
         self.bot = bot
         self.command_manager = CommandManager()
 
-    @cog_ext.cog_slash(name='avatar', description='Аватар пользователя', options=[create_option(name='user', description='Пользователь, чей аватар необходимо получить', option_type=6, required=False)], guild_ids=[GUILD_ID])
+    @cog_ext.cog_slash(name='avatar', description='Аватар пользователя', options=[
+        create_option(name='user', description='Пользователь, чей аватар необходимо получить', option_type=6,
+                      required=False)], guild_ids=[GUILD_ID])
     async def _avatar(self, ctx: SlashContext, user: discord.User = None):
-        print(ctx.channel_id)
         user = ctx.author if user is None else user
         await ctx.send(**self.command_manager.avatar(ctx, user))
 
     @cog_ext.cog_slash(name='help', description='Общая информация и доступные команды', guild_ids=[GUILD_ID])
     async def _help(self, ctx: SlashContext):
-        await ctx.send(**self.command_manager.help(ctx, ctx.author.permissions_in(ctx.channel).administrator))
+        embeds = self.command_manager.help(ctx.channel_id, ctx.author.permissions_in(ctx.channel).administrator)
+        await ctx.send(embed=embeds[0])
+        if len(embeds) > 1:
+            await ctx.send(embeds=embeds[1:], hidden=True)
 
-    @cog_ext.cog_slash(name='player', description='Информация об игроке', options=[create_option(name='nickname', description='Никнейм игрока', option_type=3, required=True)], guild_ids=[GUILD_ID])
+    @cog_ext.cog_slash(name='player', description='Информация об игроке', options=[
+        create_option(name='nickname', description='Никнейм игрока', option_type=3, required=True)],
+                       guild_ids=[GUILD_ID])
     async def _player(self, ctx: SlashContext, nickname: str):
-        if not await self.command_manager.confirm_channel_access(ctx, self._player.name):
+        if not await self.command_manager.confirm_channel_access(ctx, ctx.channel_id, self._player.name):
             return
         await ctx.defer()
         await ctx.send(**self.command_manager.player(nickname))
 
-    @cog_ext.cog_slash(name='role', description='Информация об игроке', options=[create_option(name='nickname', description='Никнейм игрока', option_type=3, required=True)], guild_ids=[GUILD_ID])
+    @cog_ext.cog_slash(name='role', description='Информация об игроке', options=[
+        create_option(name='nickname', description='Никнейм игрока', option_type=3, required=True)],
+                       guild_ids=[GUILD_ID])
     async def _role(self, ctx: SlashContext, nickname: str):
-        if not await self.command_manager.confirm_channel_access(ctx, self._player.name):
+        if not await self.command_manager.confirm_channel_access(ctx, ctx.channel_id, self._player.name):
             return
         await ctx.defer()
         await ctx.send(**self.command_manager.player(nickname))
 
-    @cog_ext.cog_slash(name='clan', description='Информация о клане', options=[create_option(name='clan_name', description='Название клана', option_type=3, required=True)], guild_ids=[GUILD_ID])
+    @cog_ext.cog_slash(name='clan', description='Информация о клане', options=[
+        create_option(name='clan_name', description='Название клана', option_type=3, required=True)],
+                       guild_ids=[GUILD_ID])
     async def _clan(self, ctx: SlashContext, clan_name: str):
-        if not await self.command_manager.confirm_channel_access(ctx, self._clan.name):
+        if not await self.command_manager.confirm_channel_access(ctx, ctx.channel_id, self._clan.name):
             return
         await ctx.defer()
         await ctx.send(**self.command_manager.clan(clan_name))
 
     @cog_ext.cog_slash(name='monitoring', description='Мониторинг серверов', guild_ids=[GUILD_ID])
     async def _monitoring(self, ctx):
-        if not await self.command_manager.confirm_channel_access(ctx, self._monitoring.name):
+        if not await self.command_manager.confirm_channel_access(ctx, ctx.channel_id, self._monitoring.name):
             return
         await ctx.defer()
         await ctx.send(**self.command_manager.monitoring())
 
     @cog_ext.cog_subcommand(base='top', name='online', description='Топ игроков по онлайну', guild_ids=[GUILD_ID])
     async def _top_online(self, ctx: SlashContext):
-        if not await self.command_manager.confirm_channel_access(ctx, self._top_online.name):
+        if not await self.command_manager.confirm_channel_access(ctx, ctx.channel_id, self._top_online.name):
             return
         await ctx.defer()
         await ctx.send(**self.command_manager.online())
 
     @cog_ext.cog_subcommand(base='top', name='votes', description='Топ игроков по голосам', guild_ids=[GUILD_ID])
     async def _top_votes(self, ctx: SlashContext):
-        if not await self.command_manager.confirm_channel_access(ctx, self._top_votes.name):
+        if not await self.command_manager.confirm_channel_access(ctx, ctx.channel_id, self._top_votes.name):
             return
         await ctx.defer()
         await ctx.send(**self.command_manager.votes())
 
-    @cog_ext.cog_slash(name='purge', description='Чистка сообщений', options=[create_option(name='count', description='Количество сообщений', option_type=4, required=True)], guild_ids=[GUILD_ID])
+    @cog_ext.cog_slash(name='purge', description='Чистка сообщений', options=[
+        create_option(name='count', description='Количество сообщений', option_type=4, required=True)],
+                       guild_ids=[GUILD_ID])
     async def _purge(self, ctx: SlashContext, count: int):
-        if not await self.command_manager.confirm_permission_access(ctx, ctx.author.permissions_in(ctx.channel).manage_messages):
+        if not await self.command_manager.confirm_permission_access(ctx, ctx.author.permissions_in(
+                ctx.channel).manage_messages):
             return
         await ctx.channel.purge(limit=count)
         await self.bot.log_manager.message_purge(ctx.author, ctx.channel_id, count)
         await ctx.send(f'Успешно удалено **{count}** сообщений.', hidden=True)
 
-    @cog_ext.cog_slash(name='link', description='Привязка никнейма к дискорд-аккаунту', options=[create_option(name='nickname', description='Игровой никнейм на проекте', option_type=3, required=True), create_option(name='member', description='Дискорд-аккаунт на сервере', option_type=6, required=True)], guild_ids=[GUILD_ID], )
+    @cog_ext.cog_slash(name='link', description='Привязка никнейма к дискорд-аккаунту', options=[
+        create_option(name='nickname', description='Игровой никнейм на проекте', option_type=3, required=True),
+        create_option(name='member', description='Дискорд-аккаунт на сервере', option_type=6, required=True)],
+                       guild_ids=[GUILD_ID], )
     async def _link(self, ctx: SlashContext, nickname: str, member: discord.Member):
-        if not await self.command_manager.confirm_permission_access(ctx, ctx.author.permissions_in(ctx.channel).administrator):
+        if not await self.command_manager.confirm_permission_access(ctx, ctx.author.permissions_in(
+                ctx.channel).administrator):
             return
         await ctx.send(**self.command_manager.link(self.bot.rank_manager, nickname, member.id))
 
-    @cog_ext.cog_slash(name='kick', description='Кикнуть пользователя с сервера', options=[create_option(name='user', description='Пользователь, которого необходимо кикнуть', option_type=6, required=True), create_option(name='reason', description='Причина кика', option_type=3, required=False)], guild_ids=[GUILD_ID], )
+    @cog_ext.cog_slash(name='kick', description='Кикнуть пользователя с сервера', options=[
+        create_option(name='user', description='Пользователь, которого необходимо кикнуть', option_type=6,
+                      required=True),
+        create_option(name='reason', description='Причина кика', option_type=3, required=False)],
+                       guild_ids=[GUILD_ID], )
     async def _kick(self, ctx: SlashContext, user: discord.Member, reason: str = 'Не веди себя плохо :)'):
-        if not await self.command_manager.confirm_permission_access(ctx, ctx.author.permissions_in(ctx.channel).kick_members):
+        if not await self.command_manager.confirm_permission_access(ctx, ctx.author.permissions_in(
+                ctx.channel).kick_members):
             return
         await user.kick(reason=reason)
-        await ctx.send(f'Пользователь **{user.display_name}** успешно кикнут по причине `{reason}`.', hidden=True)
+        await ctx.send(f'Пользователь **{user.display_name}** успешно кикнут по причине `{reason}`.')
 
-    @cog_ext.cog_slash(name='ban', description='Забанить пользователя на сервере', options=[create_option(name='user', description='Пользователь, которого необходимо забанить', option_type=6, required=True), create_option(name='reason', description='Причина кика', option_type=3, required=False)], guild_ids=[GUILD_ID], )
+    @cog_ext.cog_slash(name='ban', description='Забанить пользователя на сервере', options=[
+        create_option(name='user', description='Пользователь, которого необходимо забанить', option_type=6,
+                      required=True),
+        create_option(name='reason', description='Причина кика', option_type=3, required=False)],
+                       guild_ids=[GUILD_ID], )
     async def _ban(self, ctx: SlashContext, user: discord.Member, reason: str = 'Не веди себя плохо :)'):
-        if not await self.command_manager.confirm_permission_access(ctx, ctx.author.permissions_in(ctx.channel).ban_members):
+        if not await self.command_manager.confirm_permission_access(ctx,
+                                                                    ctx.author.permissions_in(ctx.channel).ban_members):
             return
         await user.ban(reason=reason)
-        await ctx.send(f'Пользователь **{user.display_name}** успешно забанен по причине `{reason}`.', hidden=True)
+        await ctx.send(f'Пользователь **{user.display_name}** успешно забанен по причине `{reason}`.')
 
-    @cog_ext.cog_slash(name='recruit', description='Принять новобранца в клан', options=[create_option(name='nickname', description='Игровой никнейм на проекте', option_type=3, required=True), create_option(name='name', description='Настоящее имя игрока', option_type=3, required=True), create_option(name='user', description='Пользователь, которого необходимо принять в клан', option_type=6, required=True), create_option(name='term', description='Длительность испытательного срока (в сутках). По умолчанию: 7', option_type=4, required=False), create_option(name='mention', description='Оповещение клану. По умолчанию: False', option_type=5, required=False)], guild_ids=[GUILD_ID])
-    async def _recruit(self, ctx: SlashContext, nickname: str, name: str, user: discord.Member, term: int = 7, mention: bool = False):
-        if not await self.command_manager.confirm_permission_access(ctx, ctx.author.permissions_in(ctx.channel).administrator):
+    @cog_ext.cog_slash(name='recruit', description='Принять новобранца в клан', options=[
+        create_option(name='nickname', description='Игровой никнейм на проекте', option_type=3, required=True),
+        create_option(name='name', description='Настоящее имя игрока', option_type=3, required=True),
+        create_option(name='user', description='Пользователь, которого необходимо принять в клан', option_type=6,
+                      required=True),
+        create_option(name='term', description='Длительность испытательного срока (в сутках). По умолчанию: 7',
+                      option_type=4, required=False),
+        create_option(name='mention', description='Оповещение клану. По умолчанию: False', option_type=5,
+                      required=False)], guild_ids=[GUILD_ID])
+    async def _recruit(self, ctx: SlashContext, nickname: str, name: str, user: discord.Member, term: int = 7,
+                       mention: bool = False):
+        if not await self.command_manager.confirm_permission_access(ctx, ctx.author.permissions_in(
+                ctx.channel).administrator):
             return
-        await ctx.send(**await self.command_manager.recruit(ctx, self.bot.rank_manager, nickname, name, user, mention, term))
+        await ctx.send(
+            **await self.command_manager.recruit(ctx, self.bot.rank_manager, nickname, name, user, mention, term))
 
-    @cog_ext.cog_slash(name='say', description='Соообщение от лица бота', options=[create_option(name='channel', description='Канал сообщения', option_type=7, required=True), create_option(name='text', description='Текст сообщения', option_type=3, required=True), create_option(name='reaction', description='Реакция к отправленному сообщению', option_type=3, required=False)], guild_ids=[GUILD_ID])
+    @cog_ext.cog_slash(name='say', description='Соообщение от лица бота', options=[
+        create_option(name='channel', description='Канал сообщения', option_type=7, required=True),
+        create_option(name='text', description='Текст сообщения', option_type=3, required=True),
+        create_option(name='reaction', description='Реакция к отправленному сообщению', option_type=3, required=False)],
+                       guild_ids=[GUILD_ID])
     async def _say(self, ctx: SlashContext, channel: discord.TextChannel, text: str, reaction: str = None):
-        if not await self.command_manager.confirm_permission_access(ctx, ctx.author.permissions_in(ctx.channel).administrator):
+        if not await self.command_manager.confirm_permission_access(ctx, ctx.author.permissions_in(
+                ctx.channel).administrator):
             return
         message = await channel.send(text)
         if reaction is not None:
@@ -247,78 +347,158 @@ class Slash(commands.Cog):
 
     @cog_ext.cog_subcommand(base='rank', name='top', description='Топ игроков по рангу', guild_ids=[GUILD_ID])
     async def _rank_top(self, ctx: SlashContext):
-        if not await self.command_manager.confirm_channel_access(ctx, self._rank_top.base):
+        if not await self.command_manager.confirm_channel_access(ctx, ctx.channel_id, self._rank_top.base):
             return
         await ctx.send('Бип буп бип')
 
-    @cog_ext.cog_subcommand(base='rank', name='player', description='Ранг пользователя', options=[create_option(name='nickname', description='Никнейм игрока на проекте', option_type=3, required=False), create_option(name='user', description='Дискорд игрока', option_type=6, required=False)], guild_ids=[GUILD_ID])
+    @cog_ext.cog_subcommand(base='rank', name='player', description='Ранг пользователя', options=[
+        create_option(name='nickname', description='Никнейм игрока на проекте', option_type=3, required=False),
+        create_option(name='user', description='Дискорд игрока', option_type=6, required=False)], guild_ids=[GUILD_ID])
     async def _rank_player(self, ctx: SlashContext, nickname: str = None, user: discord.Member = None):
-        if not await self.command_manager.confirm_channel_access(ctx, self._rank_player.base):
+        if not await self.command_manager.confirm_channel_access(ctx, ctx.channel_id, self._rank_player.base):
             return
         await ctx.send('Бип буп бип')
 
-    @cog_ext.cog_subcommand(base='history', subcommand_group='member', name='accept', description='Добавление участника в клан (обновление истории клана)', options=[create_option(name='nickname', description='Игровой никнейм на проекте', option_type=3, required=True), create_option(name='date', description=f'Дата осуществления. По умолчанию: {datetime.datetime.now().strftime("%d/%m/%Y")}', option_type=3, required=False)], guild_ids=[GUILD_ID])
-    async def _history_member_accept(self, ctx: SlashContext, nickname: str, date: str = datetime.datetime.now().strftime('%d/%m/%Y')):
-        if not await self.command_manager.confirm_permission_access(ctx, ctx.author.permissions_in(ctx.channel).administrator):
+    @cog_ext.cog_subcommand(base='history', subcommand_group='member', name='accept',
+                            description='Добавление участника в клан (обновление истории клана)', options=[
+            create_option(name='nickname', description='Игровой никнейм на проекте', option_type=3, required=True),
+            create_option(name='date',
+                          description=f'Дата осуществления. По умолчанию: {datetime.datetime.now().strftime("%d/%m/%Y")}',
+                          option_type=3, required=False)], guild_ids=[GUILD_ID])
+    async def _history_member_accept(self, ctx: SlashContext, nickname: str,
+                                     date: str = datetime.datetime.now().strftime('%d/%m/%Y')):
+        if not await self.command_manager.confirm_permission_access(ctx, ctx.author.permissions_in(
+                ctx.channel).administrator):
             return
         await ctx.send(**await self.command_manager.history_member_accept(ctx, nickname, date))
 
-    @cog_ext.cog_subcommand(base='history', subcommand_group='member', name='kick', description='Исключение участника из клана (обновление истории клана)', options=[create_option(name='nickname', description='Игровой никнейм на проекте', option_type=3, required=True), create_option(name='date', description=f'Дата осуществления. По умолчанию: {datetime.datetime.now().strftime("%d/%m/%Y")}', option_type=3, required=False)], guild_ids=[GUILD_ID])
-    async def _history_member_kick(self, ctx: SlashContext, nickname: str, date: str = datetime.datetime.now().strftime('%d/%m/%Y')):
-        if not await self.command_manager.confirm_permission_access(ctx, ctx.author.permissions_in(ctx.channel).administrator):
+    @cog_ext.cog_subcommand(base='history', subcommand_group='member', name='kick',
+                            description='Исключение участника из клана (обновление истории клана)', options=[
+            create_option(name='nickname', description='Игровой никнейм на проекте', option_type=3, required=True),
+            create_option(name='date',
+                          description=f'Дата осуществления. По умолчанию: {datetime.datetime.now().strftime("%d/%m/%Y")}',
+                          option_type=3, required=False)], guild_ids=[GUILD_ID])
+    async def _history_member_kick(self, ctx: SlashContext, nickname: str,
+                                   date: str = datetime.datetime.now().strftime('%d/%m/%Y')):
+        if not await self.command_manager.confirm_permission_access(ctx, ctx.author.permissions_in(
+                ctx.channel).administrator):
             return
         await ctx.send(**await self.command_manager.history_member_kick(ctx, nickname, date))
 
-    @cog_ext.cog_subcommand(base='history', subcommand_group='member', name='reserve', description='Перевод участника в резервный состав (обновление истории клана)', options=[create_option(name='nickname', description='Игровой никнейм на проекте', option_type=3, required=True), create_option(name='date', description=f'Дата осуществления. По умолчанию: {datetime.datetime.now().strftime("%d/%m/%Y")}', option_type=3, required=False)], guild_ids=[GUILD_ID])
-    async def _history_member_reserve(self, ctx: SlashContext, nickname: str, date: str = datetime.datetime.now().strftime('%d/%m/%Y')):
-        if not await self.command_manager.confirm_permission_access(ctx, ctx.author.permissions_in(ctx.channel).administrator):
+    @cog_ext.cog_subcommand(base='history', subcommand_group='member', name='reserve',
+                            description='Перевод участника в резервный состав (обновление истории клана)', options=[
+            create_option(name='nickname', description='Игровой никнейм на проекте', option_type=3, required=True),
+            create_option(name='date',
+                          description=f'Дата осуществления. По умолчанию: {datetime.datetime.now().strftime("%d/%m/%Y")}',
+                          option_type=3, required=False)], guild_ids=[GUILD_ID])
+    async def _history_member_reserve(self, ctx: SlashContext, nickname: str,
+                                      date: str = datetime.datetime.now().strftime('%d/%m/%Y')):
+        if not await self.command_manager.confirm_permission_access(ctx, ctx.author.permissions_in(
+                ctx.channel).administrator):
             return
         await ctx.send(**await self.command_manager.history_member_reserve(ctx, nickname, date))
 
-    @cog_ext.cog_subcommand(base='history', subcommand_group='member', name='return', description='Перевод участника в основной состав (обновление истории клана)', options=[create_option(name='nickname', description='Игровой никнейм на проекте', option_type=3, required=True), create_option(name='date', description=f'Дата осуществления. По умолчанию: {datetime.datetime.now().strftime("%d/%m/%Y")}', option_type=3, required=False)], guild_ids=[GUILD_ID])
-    async def _history_member_return(self, ctx: SlashContext, nickname: str, date: str = datetime.datetime.now().strftime('%d/%m/%Y')):
-        if not await self.command_manager.confirm_permission_access(ctx, ctx.author.permissions_in(ctx.channel).administrator):
+    @cog_ext.cog_subcommand(base='history', subcommand_group='member', name='return',
+                            description='Перевод участника в основной состав (обновление истории клана)', options=[
+            create_option(name='nickname', description='Игровой никнейм на проекте', option_type=3, required=True),
+            create_option(name='date',
+                          description=f'Дата осуществления. По умолчанию: {datetime.datetime.now().strftime("%d/%m/%Y")}',
+                          option_type=3, required=False)], guild_ids=[GUILD_ID])
+    async def _history_member_return(self, ctx: SlashContext, nickname: str,
+                                     date: str = datetime.datetime.now().strftime('%d/%m/%Y')):
+        if not await self.command_manager.confirm_permission_access(ctx, ctx.author.permissions_in(
+                ctx.channel).administrator):
             return
         await ctx.send(**await self.command_manager.history_member_return(ctx, nickname, date))
 
-    @cog_ext.cog_subcommand(base='history', subcommand_group='member', name='enhance', description='Повышение участника в звании (обновление истории клана)', options=[create_option(name='nickname', description='Игровой никнейм на проекте', option_type=3, required=True), create_option(name='rank', description='Новое звание участника', option_type=3, required=True, choices=[create_choice(value='Глава клана', name='Лидер (глава)'), create_choice(value='Офицер клана', name='Офицер')]), create_option(name='date', description=f'Дата осуществления. По умолчанию: {datetime.datetime.now().strftime("%d/%m/%Y")}', option_type=3, required=False)], guild_ids=[GUILD_ID])
-    async def _history_member_enhance(self, ctx: SlashContext, nickname: str, rank: str, date: str = datetime.datetime.now().strftime('%d/%m/%Y')):
-        if not await self.command_manager.confirm_permission_access(ctx, ctx.author.permissions_in(ctx.channel).administrator):
+    @cog_ext.cog_subcommand(base='history', subcommand_group='member', name='enhance',
+                            description='Повышение участника в звании (обновление истории клана)', options=[
+            create_option(name='nickname', description='Игровой никнейм на проекте', option_type=3, required=True),
+            create_option(name='rank', description='Новое звание участника', option_type=3, required=True,
+                          choices=[create_choice(value='Глава клана', name='Лидер (глава)'),
+                                   create_choice(value='Офицер клана', name='Офицер')]), create_option(name='date',
+                                                                                                       description=f'Дата осуществления. По умолчанию: {datetime.datetime.now().strftime("%d/%m/%Y")}',
+                                                                                                       option_type=3,
+                                                                                                       required=False)],
+                            guild_ids=[GUILD_ID])
+    async def _history_member_enhance(self, ctx: SlashContext, nickname: str, rank: str,
+                                      date: str = datetime.datetime.now().strftime('%d/%m/%Y')):
+        if not await self.command_manager.confirm_permission_access(ctx, ctx.author.permissions_in(
+                ctx.channel).administrator):
             return
         await ctx.send(**await self.command_manager.history_member_enhance(ctx, nickname, rank, date))
 
-    @cog_ext.cog_subcommand(base='history', subcommand_group='member', name='lower', description='Понижение участника в звании (обновление истории клана)', options=[create_option(name='nickname', description='Игровой никнейм на проекте', option_type=3, required=True), create_option(name='rank', description='Новое звание участника', option_type=3, required=True, choices=[create_choice(value='Участник клана', name='Участник'), create_choice(value='Офицер клана', name='Офицер')]), create_option(name='date', description=f'Дата осуществления. По умолчанию: {datetime.datetime.now().strftime("%d/%m/%Y")}', option_type=3, required=False)], guild_ids=[GUILD_ID])
-    async def _history_member_lower(self, ctx: SlashContext, nickname: str, rank: str, date: str = datetime.datetime.now().strftime('%d/%m/%Y')):
-        if not await self.command_manager.confirm_permission_access(ctx, ctx.author.permissions_in(ctx.channel).administrator):
+    @cog_ext.cog_subcommand(base='history', subcommand_group='member', name='lower',
+                            description='Понижение участника в звании (обновление истории клана)', options=[
+            create_option(name='nickname', description='Игровой никнейм на проекте', option_type=3, required=True),
+            create_option(name='rank', description='Новое звание участника', option_type=3, required=True,
+                          choices=[create_choice(value='Участник клана', name='Участник'),
+                                   create_choice(value='Офицер клана', name='Офицер')]), create_option(name='date',
+                                                                                                       description=f'Дата осуществления. По умолчанию: {datetime.datetime.now().strftime("%d/%m/%Y")}',
+                                                                                                       option_type=3,
+                                                                                                       required=False)],
+                            guild_ids=[GUILD_ID])
+    async def _history_member_lower(self, ctx: SlashContext, nickname: str, rank: str,
+                                    date: str = datetime.datetime.now().strftime('%d/%m/%Y')):
+        if not await self.command_manager.confirm_permission_access(ctx, ctx.author.permissions_in(
+                ctx.channel).administrator):
             return
         await ctx.send(**await self.command_manager.history_member_lower(ctx, nickname, rank, date))
 
-    @cog_ext.cog_subcommand(base='history', subcommand_group='clan', name='alliance', description='Заключение союза с кланом (обновление истории клана)', options=[create_option(name='clan', description='Название клана на проекте', option_type=3, required=True), create_option(name='date', description=f'Дата осуществления. По умолчанию: {datetime.datetime.now().strftime("%d/%m/%Y")}', option_type=3, required=False)], guild_ids=[GUILD_ID])
-    async def _history_clan_alliance(self, ctx: SlashContext, clan: str, date: str = datetime.datetime.now().strftime('%d/%m/%Y')):
-        if not await self.command_manager.confirm_permission_access(ctx, ctx.author.permissions_in(ctx.channel).administrator):
+    @cog_ext.cog_subcommand(base='history', subcommand_group='clan', name='alliance',
+                            description='Заключение союза с кланом (обновление истории клана)', options=[
+            create_option(name='clan', description='Название клана на проекте', option_type=3, required=True),
+            create_option(name='date',
+                          description=f'Дата осуществления. По умолчанию: {datetime.datetime.now().strftime("%d/%m/%Y")}',
+                          option_type=3, required=False)], guild_ids=[GUILD_ID])
+    async def _history_clan_alliance(self, ctx: SlashContext, clan: str,
+                                     date: str = datetime.datetime.now().strftime('%d/%m/%Y')):
+        if not await self.command_manager.confirm_permission_access(ctx, ctx.author.permissions_in(
+                ctx.channel).administrator):
             return
         await ctx.send(**await self.command_manager.history_clan_alliance(ctx, clan, date))
 
-    @cog_ext.cog_subcommand(base='history', subcommand_group='clan', name='terminate_alliance', description='Расторжение союза с кланом (обновление истории клана)', options=[create_option(name='clan', description='Название клана на проекте', option_type=3, required=True), create_option(name='date', description=f'Дата осуществления. По умолчанию: {datetime.datetime.now().strftime("%d/%m/%Y")}', option_type=3, required=False)], guild_ids=[GUILD_ID])
-    async def _history_clan_terminate_alliance(self, ctx: SlashContext, clan: str, date: str = datetime.datetime.now().strftime('%d/%m/%Y')):
-        if not await self.command_manager.confirm_permission_access(ctx, ctx.author.permissions_in(ctx.channel).administrator):
+    @cog_ext.cog_subcommand(base='history', subcommand_group='clan', name='terminate_alliance',
+                            description='Расторжение союза с кланом (обновление истории клана)', options=[
+            create_option(name='clan', description='Название клана на проекте', option_type=3, required=True),
+            create_option(name='date',
+                          description=f'Дата осуществления. По умолчанию: {datetime.datetime.now().strftime("%d/%m/%Y")}',
+                          option_type=3, required=False)], guild_ids=[GUILD_ID])
+    async def _history_clan_terminate_alliance(self, ctx: SlashContext, clan: str,
+                                               date: str = datetime.datetime.now().strftime('%d/%m/%Y')):
+        if not await self.command_manager.confirm_permission_access(ctx, ctx.author.permissions_in(
+                ctx.channel).administrator):
             return
         await ctx.send(**await self.command_manager.history_clan_terminate_alliance(ctx, clan, date))
 
-    @cog_ext.cog_subcommand(base='history', subcommand_group='clan', name='war', description='Объявление войны клану (обновление истории клана)', options=[create_option(name='clan', description='Название клана на проекте', option_type=3, required=True), create_option(name='date', description=f'Дата осуществления. По умолчанию: {datetime.datetime.now().strftime("%d/%m/%Y")}', option_type=3, required=False)], guild_ids=[GUILD_ID])
-    async def _history_clan_war(self, ctx: SlashContext, clan: str, date: str = datetime.datetime.now().strftime('%d/%m/%Y')):
-        if not await self.command_manager.confirm_permission_access(ctx, ctx.author.permissions_in(ctx.channel).administrator):
+    @cog_ext.cog_subcommand(base='history', subcommand_group='clan', name='war',
+                            description='Объявление войны клану (обновление истории клана)', options=[
+            create_option(name='clan', description='Название клана на проекте', option_type=3, required=True),
+            create_option(name='date',
+                          description=f'Дата осуществления. По умолчанию: {datetime.datetime.now().strftime("%d/%m/%Y")}',
+                          option_type=3, required=False)], guild_ids=[GUILD_ID])
+    async def _history_clan_war(self, ctx: SlashContext, clan: str,
+                                date: str = datetime.datetime.now().strftime('%d/%m/%Y')):
+        if not await self.command_manager.confirm_permission_access(ctx, ctx.author.permissions_in(
+                ctx.channel).administrator):
             return
         await ctx.send(**await self.command_manager.history_clan_war(ctx, clan, date))
 
-    @cog_ext.cog_subcommand(base='history', subcommand_group='clan', name='truce', description='Объявление перемирия (после войны) клану (обновление истории клана)', options=[create_option(name='clan', description='Название клана на проекте', option_type=3, required=True), create_option(name='date', description=f'Дата осуществления. По умолчанию: {datetime.datetime.now().strftime("%d/%m/%Y")}', option_type=3, required=False)], guild_ids=[GUILD_ID])
-    async def _history_clan_truce(self, ctx: SlashContext, clan: str, date: str = datetime.datetime.now().strftime('%d/%m/%Y')):
-        if not await self.command_manager.confirm_permission_access(ctx, ctx.author.permissions_in(ctx.channel).administrator):
+    @cog_ext.cog_subcommand(base='history', subcommand_group='clan', name='truce',
+                            description='Объявление перемирия (после войны) клану (обновление истории клана)', options=[
+            create_option(name='clan', description='Название клана на проекте', option_type=3, required=True),
+            create_option(name='date',
+                          description=f'Дата осуществления. По умолчанию: {datetime.datetime.now().strftime("%d/%m/%Y")}',
+                          option_type=3, required=False)], guild_ids=[GUILD_ID])
+    async def _history_clan_truce(self, ctx: SlashContext, clan: str,
+                                  date: str = datetime.datetime.now().strftime('%d/%m/%Y')):
+        if not await self.command_manager.confirm_permission_access(ctx, ctx.author.permissions_in(
+                ctx.channel).administrator):
             return
         await ctx.send(**await self.command_manager.history_clan_truce(ctx, clan, date))
 
 
 if __name__ == '__main__':
-    speedwagon = Speedwagon(intents=discord.Intents.all(), command_prefix='/', sync_commands=True)
+    speedwagon = Speedwagon(intents=discord.Intents.all(), command_prefix='/', case_insensitive=True, help_command=None)
     speedwagon.add_cog(Slash(speedwagon))
     speedwagon.run(config_parser.get_section_params('bot').get('token'))

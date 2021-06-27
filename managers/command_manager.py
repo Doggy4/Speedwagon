@@ -11,13 +11,24 @@ class CommandManager(object):
     _commands = {channels.SPEEDWAGON: ['player', 'clan', 'monitoring', 'online', 'votes'], channels.BOT_TESTING: ['player', 'clan', 'monitoring', 'top', 'online', 'votes', 'rank'], channels.RANK: ['help', 'rank']}
 
     @staticmethod
+    def pending():
+        return {'embed': pending}
+
+    @staticmethod
     def _command_does_not_exist():
         return {'embed': command_does_not_exist}
 
     @staticmethod
-    async def confirm_channel_access(ctx: SlashContext, command_name: str):
-        if CommandManager._commands.get(ctx.channel_id) is None or command_name not in CommandManager._commands.get(ctx.channel_id):
-            await ctx.send(hidden=True, **CommandManager._command_does_not_exist())
+    def user_does_not_exist():
+        return {'embed': user_does_not_exist}
+
+    @staticmethod
+    async def confirm_channel_access(ctx, channel_id, command_name: str):
+        if CommandManager._commands.get(channel_id) is None or command_name not in CommandManager._commands.get(channel_id):
+            if isinstance(ctx, SlashContext):
+                await ctx.send(hidden=True, **CommandManager._command_does_not_exist())
+            else:
+                await ctx.reply(delete_after=30, **CommandManager._command_does_not_exist())
             return False
         return True
 
@@ -29,8 +40,8 @@ class CommandManager(object):
         return True
 
     @staticmethod
-    def help(ctx: SlashContext, is_admin: bool):
-        return {'embeds': get_help_embeds(ctx.channel_id, is_admin)}
+    def help(channel_id, is_admin: bool):
+        return get_help_embeds(channel_id, is_admin)
 
     @staticmethod
     def avatar(ctx: SlashContext, user: discord.User):
@@ -41,7 +52,7 @@ class CommandManager(object):
         player_data = parsers.player(nickname)
         if player_data is not None:
             return {'embed': player(player_data)}
-        return {'embed': player_does_not_exist}
+        return {'embed': user_does_not_exist}
 
     @staticmethod
     def clan(clan_name: str):

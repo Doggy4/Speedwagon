@@ -2,8 +2,11 @@ from embeds.custom_embed import CustomEmbed
 
 from utils import colors
 
-# Player does not exist embed
-player_does_not_exist = CustomEmbed(title='Возникла **ошибка** при выполнении команды', description='Пользователь с указанным никнеймом не существует.', color=colors.wheat, thumbnail_url='https://i.imgur.com/7FcyvNM.png')
+# Pending embed
+pending = CustomEmbed(title='Пожалуйста, подождите...', description='Идет загрузка необходимой информации.', color=colors.midnightblue, image_url='https://i.imgur.com/yfDCSKl.gif')
+
+# User does not exist embed
+user_does_not_exist = CustomEmbed(title='Возникла **ошибка** при выполнении команды', description='Пользователь с указанным никнеймом не существует.', color=colors.wheat, thumbnail_url='https://i.imgur.com/7FcyvNM.png')
 
 # Clan does not exist embed
 clan_does_not_exist = CustomEmbed(title='Возникла **ошибка** при выполнении команды', description='Клан с указанным названием не существует.', color=colors.wheat, thumbnail_url='https://i.imgur.com/7FcyvNM.png')

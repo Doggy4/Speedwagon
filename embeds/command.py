@@ -5,7 +5,7 @@ from utils import structures
 
 # Avatar embed
 def avatar(image_url, author_avatar, name, discriminator):
-	return CustomEmbed(title='**Аватар**', image_url=image_url, author=EmbedAuthor(name=f'{name}#{discriminator}', icon_url=author_avatar))
+	return CustomEmbed(title='**Аватар**', image_url=image_url, author=EmbedAuthor(name=f'{name}#{discriminator}', icon_url=image_url))
 
 # Monitoring embed
 def monitoring(data: structures.MonitoringStructure):
